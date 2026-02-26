@@ -139,75 +139,99 @@ impl ZednesApp {
         let mut open = self.show_ppu_debugger;
         egui::Window::new("PPU Debugger")
             .open(&mut open)
-            .resizable(true)
-            .default_width(900.0)
+            .resizable(false)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        self.render_pattern_table(ui, ctx, 0x0000);
-                        self.render_pattern_table(ui, ctx, 0x1000);
-                    });
+                    self.render_pattern_table(ui, ctx, 0x0000);
                     ui.separator();
-                    ui.vertical(|ui| {
-                        self.render_palettes(ui);
-                    });
+                    self.render_pattern_table(ui, ctx, 0x1000);
                 });
+                self.render_palettes(ui);
             });
         self.show_ppu_debugger = open;
     }
 
     fn render_palettes(&self, ui: &mut egui::Ui) {
         ui.group(|ui| {
-            ui.heading("Palettes");
-            ui.add_space(5.0);
-            
-            // Background palettes (0-3)
-            ui.label("Background:");
-            for pal_idx in 0..4 {
-                ui.horizontal(|ui| {
-                    ui.label(format!("${:X}:", pal_idx));
-                    for color_idx in 0..4 {
-                        let palette_addr = pal_idx * 4 + color_idx;
-                        let nes_color = self.state.nes.get_palette(palette_addr);
-                        let (r, g, b) = SYSTEM_PALETTE[nes_color as usize % 64];
-                        
-                        let color = egui::Color32::from_rgb(r, g, b);
-                        let (rect, response) = ui.allocate_exact_size(
-                            egui::vec2(32.0, 32.0),
-                            egui::Sense::hover()
-                        );
-                        ui.painter().rect_filled(rect, 2.0, color);
-                        
-                        // Show palette index on hover
-                        response.on_hover_text(format!("Index: ${:02X}", nes_color));
+            ui.horizontal(|ui| {
+                // Background palettes (0-3)
+                ui.vertical(|ui| {
+                    ui.label("Background:");
+                    for pal_idx in 0..4 {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("${:02X}:", pal_idx * 4));
+                            for color_idx in 0..4 {
+                                let palette_addr = pal_idx * 4 + color_idx;
+                                let nes_color = self.state.nes.get_palette(palette_addr);
+                                let (r, g, b) = SYSTEM_PALETTE[nes_color as usize % 64];
+
+                                let color = egui::Color32::from_rgb(r, g, b);
+                                let (rect, response) = ui.allocate_exact_size(
+                                    egui::vec2(20.0, 20.0),
+                                    egui::Sense::hover()
+                                );
+                                ui.painter().rect_filled(rect, 2.0, color);
+                                response.on_hover_text(format!("Palette addr: ${:02X}  Color: ${:02X}", palette_addr, nes_color));
+                            }
+                        });
                     }
                 });
-            }
-            
-            ui.add_space(10.0);
-            
-            // Sprite palettes (4-7)
-            ui.label("Sprite:");
-            for pal_idx in 4..8 {
-                ui.horizontal(|ui| {
-                    ui.label(format!("${:X}:", pal_idx));
-                    for color_idx in 0..4 {
-                        let palette_addr = pal_idx * 4 + color_idx;
-                        let nes_color = self.state.nes.get_palette(palette_addr);
-                        let (r, g, b) = SYSTEM_PALETTE[nes_color as usize % 64];
-                        
-                        let color = egui::Color32::from_rgb(r, g, b);
-                        let (rect, response) = ui.allocate_exact_size(
-                            egui::vec2(32.0, 32.0),
-                            egui::Sense::hover()
-                        );
-                        ui.painter().rect_filled(rect, 2.0, color);
-                        
-                        // Show palette index on hover
-                        response.on_hover_text(format!("Index: ${:02X}", nes_color));
+
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                // System palette: all 64 NES colors arranged as 4 rows of 16
+                ui.vertical(|ui| {
+                    ui.label("System Palette:");
+                    ui.add_space(4.0);
+                    for row in 0..4_usize {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("${:02X}:", row * 16));
+                            for col in 0..16_usize {
+                                let idx = row * 16 + col;
+                                let (r, g, b) = SYSTEM_PALETTE[idx];
+                                let color = egui::Color32::from_rgb(r, g, b);
+                                let (rect, response) = ui.allocate_exact_size(
+                                    egui::vec2(18.0, 18.0),
+                                    egui::Sense::hover()
+                                );
+                                ui.painter().rect_filled(rect, 1.0, color);
+                                response.on_hover_text(format!(
+                                    "${:02X} - rgb({}, {}, {})", idx, r, g, b
+                                ));
+                            }
+                        });
                     }
                 });
-            }
+
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                // Sprite palettes (4-7)
+                ui.vertical(|ui| {
+                    ui.label("Sprite:");
+                    for pal_idx in 4..8 {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("${:02X}:", pal_idx * 4));
+                            for color_idx in 0..4 {
+                                let palette_addr = pal_idx * 4 + color_idx;
+                                let nes_color = self.state.nes.get_palette(palette_addr);
+                                let (r, g, b) = SYSTEM_PALETTE[nes_color as usize % 64];
+
+                                let color = egui::Color32::from_rgb(r, g, b);
+                                let (rect, response) = ui.allocate_exact_size(
+                                    egui::vec2(20.0, 20.0),
+                                    egui::Sense::hover()
+                                );
+                                ui.painter().rect_filled(rect, 2.0, color);
+                                response.on_hover_text(format!("Palette addr: ${:02X}  Color: ${:02X}", palette_addr, nes_color));
+                            }
+                        });
+                    }
+                });
+            });
         });
     }
 
