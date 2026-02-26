@@ -1,26 +1,30 @@
 mod tv_system;
 
+mod ppuctrl_flags {
+    // pub const NAMETABLE_X: u8 = 0b0000_0001;
+    // pub const NAMETABLE_Y: u8 = 0b0000_0010;
+    pub const INCREMENT_MODE: u8 = 0b0000_0100;
+    // pub const SPRITE_PATTERN: u8 = 0b0000_1000;
+    // pub const BACKGROUND_PATTERN: u8 = 0b0001_0000;
+    // pub const SPRITE_SIZE: u8 = 0b0010_0000;
+    // pub const SLAVE_MODE: u8 = 0b0100_0000;
+    pub const ENABLE_NMI: u8 = 0b1000_0000;
+}
+
+mod ppustatus_flags {
+    pub const SPRITE_OVERFLOW: u8 = 0b0010_0000;
+    pub const SPRITE_ZERO_HIT: u8 = 0b0100_0000;
+    pub const VBLANK: u8 = 0b1000_0000;
+}
+
 pub use tv_system::TvSystem;
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::cartridge::Cartridge;
-
-// PPUCTRL flags
-const _NAMETABLE_X: u8 = 0b0000_0001;
-const _NAMETABLE_Y: u8 = 0b0000_0010;
-const INCREMENT_MODE: u8 = 0b0000_0100;
-const _SPRITE_PATTERN: u8 = 0b0000_1000;
-const _BACKGROUND_PATTERN: u8 = 0b0001_0000;
-const _SPRITE_SIZE: u8 = 0b0010_0000;
-const _SLAVE_MODE: u8 = 0b0100_0000;
-const ENABLE_NMI: u8 = 0b1000_0000;
-
-// PPUSTATUS flags
-const SPRITE_OVERFLOW: u8 = 0b0010_0000;
-const SPRITE_ZERO_HIT: u8 = 0b0100_0000;
-const VBLANK: u8 = 0b1000_0000;
+use ppuctrl_flags::*;
+use ppustatus_flags::*;
 
 // NES Color Palette (64 colors in RGB format)
 pub const SYSTEM_PALETTE: [(u8, u8, u8); 64] = [
@@ -443,17 +447,13 @@ impl Ppu {
 
     /// Decode a single 8x8 tile from CHR memory
     /// Returns a 64-element array (8x8) with palette indices (0-3)
-    /// Takes a closure to read CHR data to avoid coupling with cartridge
-    pub fn decode_tile<F>(&self, tile_index: u16, pattern_table: u16, read_chr: F) -> [u8; 64]
-    where
-        F: Fn(u16) -> u8,
-    {
+    pub fn decode_tile(&self, tile_index: u16, pattern_table: u16) -> [u8; 64] {
         let mut pixels = [0u8; 64];
         let tile_addr = pattern_table + (tile_index * 16);
 
         for row in 0..8 {
-            let byte1 = read_chr(tile_addr + row);
-            let byte2 = read_chr(tile_addr + row + 8);
+            let byte1 = self.ppu_read(tile_addr + row);
+            let byte2 = self.ppu_read(tile_addr + row + 8);
 
             for col in 0..8 {
                 let bit1 = (byte1 >> (7 - col)) & 1;

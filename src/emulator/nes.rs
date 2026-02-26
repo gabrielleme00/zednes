@@ -108,12 +108,6 @@ impl Nes {
         self.cpu.pc = (hi << 8) | lo;
     }
 
-    /// Get access to the frame buffer for rendering
-    pub fn get_frame_buffer(&self) -> &[u8] {
-        // TODO: Implement PPU frame buffer access
-        &[]
-    }
-
     /// Set PC directly (for testing)
     pub fn set_pc(&mut self, pc: u16) {
         self.cpu.pc = pc;
@@ -140,14 +134,8 @@ impl Nes {
     }
 
     /// Get decoded CHR tile data for rendering
-    pub fn get_decoded_tiles(&self, tile_index: u16, base_addr: u16) -> [u8; 64] {
-        self.bus.ppu.decode_tile(tile_index, base_addr, |addr| {
-            if let Some(ref cart) = self.bus.cartridge {
-                cart.borrow().ppu_read(addr).0
-            } else {
-                0
-            }
-        })
+    pub fn get_decoded_tile(&self, tile_index: u16, base_addr: u16) -> [u8; 64] {
+        self.bus.ppu.decode_tile(tile_index, base_addr)
     }
 }
 

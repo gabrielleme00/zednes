@@ -244,7 +244,7 @@ impl ZednesApp {
                 let tile_index = (tile_y * 16 + tile_x) as u16;
 
                 // Use PPU's tile decoding with a closure to read CHR data
-                let tile_pixels = nes.get_decoded_tiles(tile_index, base_addr);
+                let tile_pixels = nes.get_decoded_tile(tile_index, base_addr);
 
                 // Render the 8x8 tile into the image
                 for row in 0..8 {
