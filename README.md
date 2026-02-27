@@ -44,13 +44,20 @@ Use **File → Load ROM…** in the menu bar to load a `.nes` ROM file.
 
 > Default keyboard mapping (configurable in source):
 
-| NES Button | Key |
-|------------|-----|
-| A          | Z   |
-| B          | X   |
-| Start      | Enter |
-| Select     | Right Shift |
-| D-Pad      | Arrow keys |
+| NES Button | Key  |
+|------------|------|
+| A          | K    |
+| B          | L    |
+| Start      | E    |
+| Select     | Q    |
+| D-Pad      | WASD |
+
+| Debugger     | Key   |
+|--------------|-------|
+| Resume/Pause | Space |
+| Reset        | R     |
+| Step Instr.  | T     |
+| Step Frame   | Y     |
 
 ## Debuggers
 

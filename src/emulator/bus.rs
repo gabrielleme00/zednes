@@ -3,6 +3,7 @@ use std::rc::Rc;
 
 use super::cartridge::Cartridge;
 use super::ppu::{Ppu, TvSystem};
+use crate::input::Controller;
 
 const RAM_SIZE: usize = 64 * 1024; // 64KB of fake RAM for testing purposes
 
@@ -11,9 +12,9 @@ pub struct Bus {
     // CPU RAM
     pub cpu_ram: [u8; RAM_SIZE],
 
-    // Controllers (placeholders)
-    pub controller1: u8,
-    pub controller2: u8,
+    // Controllers
+    pub controller1: Controller,
+    pub controller2: Controller,
 
     // References to other components
     pub ppu: Ppu,
@@ -31,8 +32,8 @@ impl Bus {
     pub fn new_with_tv_system(tv_system: TvSystem) -> Self {
         Bus {
             cpu_ram: [0; RAM_SIZE],
-            controller1: 0,
-            controller2: 0,
+            controller1: Controller::new(),
+            controller2: Controller::new(),
             ppu: Ppu::new(tv_system),
             cartridge: None,
             _ppu_data_buffer: 0,
@@ -53,8 +54,8 @@ impl Bus {
                 // APU registers (not implemented yet)
                 0
             }
-            0x4016 => self.controller1,
-            0x4017 => self.controller2,
+            0x4016 => self.controller1.peek_bit(),
+            0x4017 => self.controller2.peek_bit(),
 
             // Cartridge space
             0x4020..=0xFFFF => {
@@ -102,8 +103,8 @@ impl Bus {
                 // APU registers (not implemented yet)
                 0
             }
-            0x4016 => self.controller1,
-            0x4017 => self.controller2,
+            0x4016 => self.controller1.read_serial(),
+            0x4017 => self.controller2.read_serial(),
 
             // Cartridge space
             0x4020..=0xFFFF => {
@@ -150,9 +151,10 @@ impl Bus {
             }
 
             0x4016 => {
-                // Controller strobe
-                self.controller1 = data;
-                self.controller2 = data;
+                // Controller strobe: bit 0 controls both controllers
+                let high = data & 0x01 != 0;
+                self.controller1.set_strobe(high);
+                self.controller2.set_strobe(high);
             }
 
             0x4018..=0x401F => {} // APU and I/O functionality that is normally disabled

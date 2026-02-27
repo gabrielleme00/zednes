@@ -1,7 +1,36 @@
 use super::state::EmulatorState;
+use crate::input::Button;
 use crate::renderer::{FrameBuffer, SYSTEM_PALETTE};
 use eframe::egui;
 use std::collections::HashMap;
+
+/// Commands that can be triggered from the UI or keyboard shortcuts
+enum Command {
+    ToggleRunPause,
+    Reset,
+    StepInstruction,
+    StepFrame,
+}
+
+/// Mapping of keyboard keys to controller buttons for player 1
+const CONTROLLER_1_KEY_MAP: &[(egui::Key, Button)] = &[
+    (egui::Key::K, Button::A),
+    (egui::Key::L, Button::B),
+    (egui::Key::Q, Button::Select),
+    (egui::Key::E, Button::Start),
+    (egui::Key::W, Button::Up),
+    (egui::Key::S, Button::Down),
+    (egui::Key::A, Button::Left),
+    (egui::Key::D, Button::Right),
+];
+
+/// Mapping of keyboard keys to commands for emulator control
+const COMMAND_KEY_MAP: &[(egui::Key, Command)] = &[
+    (egui::Key::Space, Command::ToggleRunPause),
+    (egui::Key::R, Command::Reset),
+    (egui::Key::T, Command::StepInstruction),
+    (egui::Key::Y, Command::StepFrame),
+];
 
 /// Main eframe application for the ZedNES emulator
 pub struct ZednesApp {
@@ -120,12 +149,13 @@ impl ZednesApp {
         });
     }
 
-    fn render_display(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+    fn render_display(&mut self, ctx: &egui::Context) {
         const NES_WIDTH: f32 = 256.0;
         const NES_HEIGHT: f32 = 240.0;
 
         // Update the FrameBuffer and ColorImage in-place
-        self.frame_buffer.update_from_ppu_screen(&self.state.nes.bus.ppu.screen);
+        self.frame_buffer
+            .update_from_ppu_screen(&self.state.nes.bus.ppu.screen);
         for (pixel, c) in self
             .screen_image
             .pixels
@@ -147,15 +177,21 @@ impl ZednesApp {
             }
         }
 
-        // Scale to fit available space (integer scale preferred)
-        let available_size = ui.available_size();
-        let scale_x = (available_size.x / NES_WIDTH).floor();
-        let scale_y = (available_size.y / NES_HEIGHT).floor();
-        let scale = scale_x.min(scale_y).max(1.0);
+        // Center the display in the available space
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                // Scale to fit available space (integer scale preferred)
+                let available_size = ui.available_size();
+                let scale_x = (available_size.x / NES_WIDTH).floor();
+                let scale_y = (available_size.y / NES_HEIGHT).floor();
+                let scale = scale_x.min(scale_y).max(1.0);
 
-        let display_size = egui::vec2(NES_WIDTH * scale, NES_HEIGHT * scale);
-        let texture = self.screen_texture.as_ref().unwrap();
-        ui.image((texture.id(), display_size));
+                // Calculate the display size based on the NES resolution and the chosen scale factor
+                let display_size = egui::vec2(NES_WIDTH * scale, NES_HEIGHT * scale);
+                let texture = self.screen_texture.as_ref().unwrap();
+                ui.image((texture.id(), display_size));
+            });
+        });
     }
 
     fn render_ppu_dbg_window(&mut self, ctx: &egui::Context) {
@@ -597,11 +633,11 @@ impl ZednesApp {
                             self.state.reset();
                         }
 
-                        if ui.button("➡ Step").clicked() {
+                        if ui.button("➡ Instr.").clicked() {
                             self.state.step_instruction();
                         }
 
-                        if ui.button("⏭ Step Frame").clicked() {
+                        if ui.button("⏭ Frame").clicked() {
                             self.state.step_frame_once();
                         }
                     });
@@ -632,8 +668,7 @@ impl ZednesApp {
                                     addr,
                                     instruction.bytes,
                                 );
-                                let disasm =
-                                    Self::format_instruction(addr, &instruction, &bytes);
+                                let disasm = Self::format_instruction(addr, &instruction, &bytes);
 
                                 // Highlight current PC
                                 let text = if addr == pc {
@@ -702,14 +737,57 @@ impl ZednesApp {
             addr, bytes_str, instruction.mnemonic, operand
         )
     }
+
+    /// Handle keyboard input for controller buttons and emulator commands.
+    fn handle_input(&mut self, ctx: &egui::Context) {
+        let (pressed_btns, released_btns, triggered_cmds) = ctx.input(|i| {
+            let mut pressed = Vec::new();
+            let mut released = Vec::new();
+            for (key, button) in CONTROLLER_1_KEY_MAP {
+                if i.key_pressed(*key) {
+                    pressed.push(*button);
+                }
+                if i.key_released(*key) {
+                    released.push(*button);
+                }
+            }
+            let cmds = COMMAND_KEY_MAP
+                .iter()
+                .filter(|(key, _)| i.key_pressed(*key))
+                .map(|(_, cmd)| cmd)
+                .collect::<Vec<_>>();
+            (pressed, released, cmds)
+        });
+
+        for btn in pressed_btns {
+            self.state.nes.bus.controller1.press(btn);
+        }
+        for btn in released_btns {
+            self.state.nes.bus.controller1.release(btn);
+        }
+        for cmd in triggered_cmds {
+            match cmd {
+                Command::ToggleRunPause => self.state.toggle_pause(),
+                Command::Reset => self.state.reset(),
+                Command::StepInstruction => self.state.step_instruction(),
+                Command::StepFrame => self.state.step_frame_once(),
+            }
+        }
+    }
 }
 
 impl eframe::App for ZednesApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // On the first frame, send a command to maximize the window.
+        // This is more reliable than setting the initial window size in eframe,
+        // which can be ignored by some platforms or window managers.
         if self.first_frame {
             ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
             self.first_frame = false;
         }
+
+        // Handle input for controller buttons and emulator commands
+        self.handle_input(ctx);
 
         // Request continuous repaint for smooth animation
         if self.state.running {
@@ -717,24 +795,25 @@ impl eframe::App for ZednesApp {
             self.state.step_frame();
         }
 
+        // Render the menu bar at the top
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             self.render_menu_bar(ui);
         });
 
+        // Render the CPU debugger as a side panel if enabled
         if self.show_cpu_debugger {
             self.render_cpu_dbg_window(ctx);
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                self.render_display(ui, ctx);
-            });
-        });
+        // Render the main NES display in the central panel
+        self.render_display(ctx);
 
+        // Render the PPU debugger as a separate window if enabled
         if self.show_ppu_debugger {
             self.render_ppu_dbg_window(ctx);
         }
 
+        // Render the memory debugger as a separate window if enabled
         if self.show_mem_debugger {
             self.render_mem_dbg_window(ctx);
         }
