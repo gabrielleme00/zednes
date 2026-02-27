@@ -1,5 +1,5 @@
 use super::state::EmulatorState;
-use crate::emulator::ppu::SYSTEM_PALETTE;
+use crate::renderer::{FrameBuffer, SYSTEM_PALETTE};
 use eframe::egui;
 use std::collections::HashMap;
 
@@ -13,6 +13,8 @@ pub struct ZednesApp {
     /// Selected palette index (0-7) for each pattern table (0 = $0000, 1 = $1000)
     chr_palette_select: [u8; 2],
     screen_texture: Option<egui::TextureHandle>,
+    screen_image: egui::ColorImage,
+    frame_buffer: FrameBuffer,
     /// Base address shown in Mem debugger
     mem_debugger_addr: u16,
     /// Text input for "Go to address"
@@ -33,6 +35,11 @@ impl ZednesApp {
             chr_textures: HashMap::new(),
             chr_palette_select: [0; 2],
             screen_texture: None,
+            screen_image: egui::ColorImage::new(
+                [FrameBuffer::NES_WIDTH, FrameBuffer::NES_HEIGHT],
+                vec![egui::Color32::BLACK; FrameBuffer::NES_WIDTH * FrameBuffer::NES_HEIGHT],
+            ),
+            frame_buffer: FrameBuffer::new(),
             mem_debugger_addr: 0x0000,
             mem_debugger_goto: String::new(),
             mem_debugger_rows: 16,
@@ -117,30 +124,28 @@ impl ZednesApp {
         const NES_WIDTH: f32 = 256.0;
         const NES_HEIGHT: f32 = 240.0;
 
-        // Build / refresh the screen texture from the PPU frame buffer
-        let pixels: Vec<egui::Color32> = self
-            .state
-            .nes
-            .bus
-            .ppu
-            .screen
-            .iter()
-            .map(|&idx| {
-                let (r, g, b) = SYSTEM_PALETTE[idx as usize % 64];
-                egui::Color32::from_rgb(r, g, b)
-            })
-            .collect();
+        // Update the FrameBuffer and ColorImage in-place
+        self.frame_buffer.update_from_ppu_screen(&self.state.nes.bus.ppu.screen);
+        for (pixel, c) in self
+            .screen_image
+            .pixels
+            .iter_mut()
+            .zip(self.frame_buffer.as_slice().chunks_exact(3))
+        {
+            *pixel = egui::Color32::from_rgb(c[0], c[1], c[2]);
+        }
 
-        let image = egui::ColorImage {
-            size: [NES_WIDTH as usize, NES_HEIGHT as usize],
-            source_size: egui::Vec2::new(NES_WIDTH, NES_HEIGHT),
-            pixels,
-        };
-
-        let texture = self.screen_texture.get_or_insert_with(|| {
-            ctx.load_texture("nes_screen", image.clone(), egui::TextureOptions::NEAREST)
-        });
-        texture.set(image, egui::TextureOptions::NEAREST);
+        // Update or create the texture for the main screen
+        match &mut self.screen_texture {
+            Some(tex) => tex.set(self.screen_image.clone(), egui::TextureOptions::NEAREST),
+            None => {
+                self.screen_texture = Some(ctx.load_texture(
+                    "nes_screen",
+                    self.screen_image.clone(),
+                    egui::TextureOptions::NEAREST,
+                ));
+            }
+        }
 
         // Scale to fit available space (integer scale preferred)
         let available_size = ui.available_size();
@@ -149,6 +154,7 @@ impl ZednesApp {
         let scale = scale_x.min(scale_y).max(1.0);
 
         let display_size = egui::vec2(NES_WIDTH * scale, NES_HEIGHT * scale);
+        let texture = self.screen_texture.as_ref().unwrap();
         ui.image((texture.id(), display_size));
     }
 
