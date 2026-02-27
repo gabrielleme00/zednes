@@ -954,7 +954,7 @@ impl Cpu {
         let hi = bus.cpu_read(0xFFFF) as u16;
         self.pc = (hi << 8) | lo;
 
-        // Halt execution — BRK has no legitimate use in NES games
+        // Halt execution - BRK has no legitimate use in NES games
         self.halted = true;
         
         7

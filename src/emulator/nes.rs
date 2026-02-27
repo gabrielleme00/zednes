@@ -130,12 +130,18 @@ impl Nes {
 
     /// Get palette entry from PPU
     pub fn get_palette(&self, index: usize) -> u8 {
-        self.bus.ppu.get_palette(index)
+        self.bus.ppu.tbl_palette[index]
     }
 
-    /// Get decoded CHR tile data for rendering
-    pub fn get_decoded_tile(&self, tile_index: u16, base_addr: u16) -> [u8; 64] {
-        self.bus.ppu.decode_tile(tile_index, base_addr)
+    /// Get all 256 tiles from the specified pattern table (0 or 1)
+    pub fn get_pattern_table(&self, index: u8) -> Vec<[u8; 64]> {
+        self.bus.ppu.get_pattern_table(index)
+    }
+
+    /// Get the RGB color for a given palette index (0-7) and pixel value (0-3).
+    /// Pixel 0 always returns the universal background color.
+    pub fn get_color_from_palette_ram(&self, palette_index: u8, pixel: u8) -> (u8, u8, u8) {
+        self.bus.ppu.get_color_from_palette_ram(palette_index, pixel)
     }
 }
 

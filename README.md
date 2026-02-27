@@ -16,7 +16,7 @@ A Nintendo Entertainment System (NES) emulator written in Rust, featuring a grap
 
 ## Screenshots
 
-> *(TODO)*
+![ZedNES Emulator](screenshot.png)
 
 ## Requirements
 
@@ -56,9 +56,9 @@ Use **File → Load ROM…** in the menu bar to load a `.nes` ROM file.
 
 Open any debugger from the **Debug** menu:
 
-- **CPU Debugger** – shows registers (A, X, Y, SP, PC), status flags, and a disassembly view.
-- **PPU Debugger** – renders both pattern tables and the system palette.
-- **Mem Debugger** – hex dump of the full address space with a *Go to address* input.
+- **CPU Debugger** - shows registers (A, X, Y, SP, PC), status flags, and a disassembly view.
+- **PPU Debugger** - renders both pattern tables and the system palette.
+- **Mem Debugger** - hex dump of the full address space with a *Go to address* input.
 
 ## Project Structure
 
@@ -86,7 +86,7 @@ src/
 | Mapper | Name  | Status |
 |--------|-------|--------|
 | 0      | NROM  | ✅ Supported |
-| Others | —     | 🚧 Not yet implemented |
+| Others | -     | 🚧 Not yet implemented |
 
 ## Dependencies
 

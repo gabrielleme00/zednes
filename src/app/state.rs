@@ -63,6 +63,27 @@ impl EmulatorState {
         }
     }
 
+    /// Advance exactly one frame.
+    /// If already running, only pauses - the main loop already advanced a frame this tick.
+    /// If paused, steps one frame then stays paused.
+    pub fn step_frame_once(&mut self) {
+        if !self.rom_loaded || self.nes.cpu.halted {
+            return;
+        }
+        if self.running {
+            // A frame was already executed by the main loop this update tick; just pause.
+            self.running = false;
+            return;
+        }
+        self.nes.step_frame();
+        if self.nes.cpu.halted {
+            self.error_message = Some(format!(
+                "CPU halted: BRK instruction at PC=${:04X}",
+                self.nes.cpu.pc
+            ));
+        }
+    }
+
     /// Execute one instruction
     pub fn step_instruction(&mut self) {
         if self.rom_loaded && !self.nes.cpu.halted {
