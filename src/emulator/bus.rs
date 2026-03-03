@@ -13,8 +13,7 @@ pub struct Bus {
     pub cpu_ram: [u8; RAM_SIZE],
 
     // Controllers
-    pub controller1: Controller,
-    pub controller2: Controller,
+    pub controllers: [Controller; 2],
 
     // References to other components
     pub ppu: Ppu,
@@ -22,21 +21,40 @@ pub struct Bus {
     
     // PPUDATA read buffer (for buffered reads)
     _ppu_data_buffer: u8,
+
+    // For OAM DMA transfers
+    dma_page: u8,
+    dma_addr: u8,
+    dma_data: u8,
+    dma_transfer: bool,
+    dma_dummy: bool,
+    dma_sync: bool,
+
+    // Tracks the CPU cycle count at the time of the last CPU step (for odd-cycle DMA detection)
+    pub cpu_cycles: u64,
 }
 
 impl Bus {
+    /// Create a new bus with the default TV system (NTSC).
     pub fn new() -> Self {
         Self::new_with_tv_system(TvSystem::Ntsc)
     }
 
+    /// Create a new bus with the specified TV system (NTSC or PAL).
     pub fn new_with_tv_system(tv_system: TvSystem) -> Self {
         Bus {
             cpu_ram: [0; RAM_SIZE],
-            controller1: Controller::new(),
-            controller2: Controller::new(),
+            controllers: [Controller::new(), Controller::new()],
             ppu: Ppu::new(tv_system),
             cartridge: None,
             _ppu_data_buffer: 0,
+            dma_page: 0,
+            dma_addr: 0,
+            dma_data: 0,
+            dma_transfer: false,
+            dma_dummy: true,
+            dma_sync: true,
+            cpu_cycles: 0,
         }
     }
 
@@ -54,8 +72,8 @@ impl Bus {
                 // APU registers (not implemented yet)
                 0
             }
-            0x4016 => self.controller1.peek_bit(),
-            0x4017 => self.controller2.peek_bit(),
+            0x4016 => self.controllers[0].peek_bit(),
+            0x4017 => self.controllers[1].peek_bit(),
 
             // Cartridge space
             0x4020..=0xFFFF => {
@@ -103,8 +121,8 @@ impl Bus {
                 // APU registers (not implemented yet)
                 0
             }
-            0x4016 => self.controller1.read_serial(),
-            0x4017 => self.controller2.read_serial(),
+            0x4016 => self.controllers[0].read_serial(),
+            0x4017 => self.controllers[1].read_serial(),
 
             // Cartridge space
             0x4020..=0xFFFF => {
@@ -137,12 +155,11 @@ impl Bus {
 
             // OAM DMA
             0x4014 => {
-                // DMA transfer from CPU memory to PPU OAM
-                let page = (data as u16) << 8;
-                for i in 0..256 {
-                    let byte = self.cpu_read(page | i);
-                    self.ppu.oam_data[i as usize] = byte;
-                }
+                self.dma_page = data;
+                self.dma_addr = 0;
+                self.dma_transfer = true;
+                self.dma_dummy = self.cpu_cycles % 2 != 0;
+                self.dma_sync = true;
             }
 
             // APU and I/O registers
@@ -153,8 +170,8 @@ impl Bus {
             0x4016 => {
                 // Controller strobe: bit 0 controls both controllers
                 let high = data & 0x01 != 0;
-                self.controller1.set_strobe(high);
-                self.controller2.set_strobe(high);
+                self.controllers[0].set_strobe(high);
+                self.controllers[1].set_strobe(high);
             }
 
             0x4018..=0x401F => {} // APU and I/O functionality that is normally disabled
@@ -173,6 +190,35 @@ impl Bus {
         let shared = Rc::new(RefCell::new(cartridge));
         self.ppu.load_cartridge(Rc::clone(&shared));
         self.cartridge = Some(shared);
+    }
+
+    pub fn dma_active(&self) -> bool {
+        self.dma_transfer
+    }
+
+    pub fn tick_dma(&mut self) -> u8 {
+        if self.dma_dummy {
+            self.dma_dummy = false;
+            return 1;
+        }
+        
+        let addr = ((self.dma_page as u16) << 8) | (self.dma_addr as u16);
+
+        if self.dma_sync {
+            // Read cycle
+            self.dma_data = self.cpu_read(addr);
+            self.dma_sync = false;
+        } else {
+            // Write cycle
+            self.ppu.cpu_write(0x0004, self.dma_data);
+            self.dma_addr = self.dma_addr.wrapping_add(1);
+            if self.dma_addr == 0 {
+                self.dma_transfer = false;
+            }
+            self.dma_sync = true;
+        }
+
+        1
     }
 }
 

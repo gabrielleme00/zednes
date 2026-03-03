@@ -56,7 +56,13 @@ impl Nes {
     /// Execute one CPU instruction and corresponding PPU cycles
     pub fn step(&mut self) {
         // Execute one CPU instruction
-        let cpu_cycles = self.cpu.step(&mut self.bus);
+        let cpu_cycles = if self.bus.dma_active() {
+            self.bus.tick_dma()
+        } else {
+            let cycles = self.cpu.step(&mut self.bus);
+            self.bus.cpu_cycles = self.cpu.cycles;
+            cycles
+        };
 
         self.step_ppu_for_cpu_cycles(cpu_cycles);
     }
@@ -131,6 +137,20 @@ impl Nes {
     /// Get palette entry from PPU
     pub fn get_palette(&self, index: usize) -> u8 {
         self.bus.ppu.tbl_palette[index]
+    }
+
+    /// Get all 64 OAM entries as (y, tile_id, attributes, x) tuples
+    pub fn get_oam(&self) -> [(u8, u8, u8, u8); 64] {
+        let mut out = [(0u8, 0u8, 0u8, 0u8); 64];
+        for (i, entry) in self.bus.ppu.oam_data.iter().enumerate() {
+            out[i] = (
+                entry.read_u8(0), // Y
+                entry.read_u8(1), // tile ID
+                entry.read_u8(2), // attributes
+                entry.read_u8(3), // X
+            );
+        }
+        out
     }
 
     /// Get all 256 tiles from the specified pattern table (0 or 1)

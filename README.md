@@ -11,7 +11,8 @@ A Nintendo Entertainment System (NES) emulator written in Rust, featuring a grap
 - **Controller input** (Player 1 & 2)
 - **Built-in debuggers**
   - CPU state viewer (registers, flags, disassembly)
-  - PPU pattern-table and palette viewer
+  - PPU pattern-table viewer
+  - Palette viewer
   - Memory hex viewer
 
 ## Screenshots
@@ -42,7 +43,7 @@ Use **File → Load ROM…** in the menu bar to load a `.nes` ROM file.
 
 ## Controls
 
-> Default keyboard mapping (configurable in source):
+> Default keyboard mapping (configurable only in source for now):
 
 | NES Button | Key  |
 |------------|------|
@@ -85,7 +86,7 @@ src/
 ├── input/
 │   └── controller.rs    # NES controller button state
 └── renderer/
-    └── frame_buffer.rs  # Raw pixel frame buffer
+    └── frame_buffer.rs  # Middle ground between PPU and egui
 ```
 
 ## ROM Compatibility
@@ -97,9 +98,10 @@ src/
 
 ## Dependencies
 
-| Crate   | Purpose                  |
-|---------|--------------------------|
+| Crate    | Purpose |
+|----------|---------|
 | `eframe` | Native window & egui rendering |
+| `rfd`    | File browser |
 
 ## License
 

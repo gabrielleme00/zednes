@@ -1,4 +1,5 @@
 mod flags;
+mod oam;
 mod system_palette;
 mod tv_system;
 
@@ -10,6 +11,7 @@ use std::rc::Rc;
 
 use super::cartridge::{Cartridge, Mirroring};
 use flags::all::*;
+use oam::ObjectAttributeEntry;
 
 type Tile = [u8; 64]; // 8x8 pixels, 4 bits per pixel (2 bitplanes)
 
@@ -33,9 +35,9 @@ pub struct Ppu {
     pub ppu_data_buffer: u8, // read buffer for $2007
 
     // Internal RAM
-    pub tbl_name: [u8; 2048],  // nametable RAM
-    pub tbl_palette: [u8; 32], // palette RAM
-    pub oam_data: [u8; 256],   // sprite attribute memory
+    pub tbl_name: [u8; 2048],                 // nametable RAM
+    pub tbl_palette: [u8; 32],                // palette RAM
+    pub oam_data: [ObjectAttributeEntry; 64], // sprite attribute memory
 
     // Background tile fetch latches
     pub bg_next_tile_id: u8,
@@ -64,6 +66,15 @@ pub struct Ppu {
 
     // Reference to the cartridge for memory-mapped access
     cartridge: Option<Rc<RefCell<Cartridge>>>,
+
+    // Sprites on the current scanline (up to 8). Populated during sprite evaluation;
+    // used during pixel rendering to determine which sprites are visible.
+    sprite_scanline: [ObjectAttributeEntry; 8],
+    sprite_count: usize,
+    sprite_shifter_pattern_lo: [u8; 8],
+    sprite_shifter_pattern_hi: [u8; 8],
+    sprite_zero_hit_possible: bool,
+    sprite_zero_hit_being_rendered: bool,
 }
 
 impl Default for Ppu {
@@ -86,7 +97,7 @@ impl Ppu {
             ppu_data_buffer: 0,
             tbl_name: [0; 2048],
             tbl_palette: [0; 32],
-            oam_data: [0; 256],
+            oam_data: [ObjectAttributeEntry::new(); 64],
             bg_next_tile_id: 0,
             bg_next_tile_attrib: 0,
             bg_next_tile_lsb: 0,
@@ -101,8 +112,14 @@ impl Ppu {
             frame_complete: false,
             tv_system,
             nmi: false,
-            cartridge: None,
             screen: [0; SCREEN_SIZE],
+            cartridge: None,
+            sprite_scanline: [ObjectAttributeEntry::new(); 8],
+            sprite_count: 0,
+            sprite_shifter_pattern_lo: [0; 8],
+            sprite_shifter_pattern_hi: [0; 8],
+            sprite_zero_hit_possible: false,
+            sprite_zero_hit_being_rendered: false,
         }
     }
 
@@ -132,6 +149,12 @@ impl Ppu {
         self.tram_addr = 0x0000;
         self.frame_complete = false;
         self.nmi = false;
+        self.sprite_scanline = [ObjectAttributeEntry::new(); 8];
+        self.sprite_count = 0;
+        self.sprite_shifter_pattern_lo = [0; 8];
+        self.sprite_shifter_pattern_hi = [0; 8];
+        self.sprite_zero_hit_possible = false;
+        self.sprite_zero_hit_being_rendered = false;
     }
 
     /// Read a PPU register from the CPU bus. Most registers have side-effects.
@@ -153,7 +176,7 @@ impl Ppu {
             0x0003 => {} // OAM address - write-only
 
             0x0004 => {
-                data = self.oam_data[self.oam_addr as usize];
+                data = self.oam_read();
             }
 
             0x0005 => {} // scroll  - write-only
@@ -202,7 +225,7 @@ impl Ppu {
             }
 
             0x0004 => {
-                self.oam_data[self.oam_addr as usize] = data;
+                self.oam_write(data);
             }
 
             // Two writes: first latches X scroll, second latches Y scroll.
@@ -253,7 +276,7 @@ impl Ppu {
             0x0001 => self.mask,
             0x0002 => self.status,
             0x0003 => self.oam_addr,
-            0x0004 => self.oam_data[self.oam_addr as usize],
+            0x0004 => self.oam_read(),
             _ => 0,
         }
     }
@@ -351,6 +374,11 @@ impl Ppu {
                 self.status &= !SPRITE_ZERO_HIT;
                 self.status &= !SPRITE_OVERFLOW;
                 self.nmi = false;
+
+                for i in 0..8 {
+                    self.sprite_shifter_pattern_lo[i] = 0;
+                    self.sprite_shifter_pattern_hi[i] = 0;
+                }
             }
 
             // Active fetch window: shift registers advance every cycle;
@@ -423,6 +451,102 @@ impl Ppu {
             if self.scanline == -1 && self.cycle >= 280 && self.cycle < 305 {
                 self.transfer_address_y();
             }
+
+            // Foreground (sprite) rendering
+            if self.cycle == 257 && self.scanline >= 0 {
+                // Reset sprite evaluation state
+                self.sprite_scanline = [ObjectAttributeEntry::new(); 8];
+                self.sprite_count = 0;
+                self.sprite_zero_hit_possible = false;
+
+                // Sprite evaluation
+                let mut oam_index: usize = 0;
+                while oam_index < 64 && self.sprite_count < 9 {
+                    let diff = (self.scanline as i16) - (self.oam_data[oam_index].y as i16);
+                    // If sprite is visible on the next scanline...
+                    if diff >= 0 && diff < self.get_sprite_size() as i16 {
+                        // If we still have room in the sprite scanline buffer, add it
+                        if self.sprite_count < 8 {
+                            if oam_index == 0 {
+                                // Sprite zero is visible on the next scanline,
+                                // so we may have a sprite zero hit this frame
+                                self.sprite_zero_hit_possible = true;
+                            }
+                            self.sprite_scanline[self.sprite_count] = self.oam_data[oam_index];
+                            self.sprite_count += 1;
+                        }
+                    }
+                    oam_index += 1;
+                }
+                if self.sprite_count > 8 {
+                    self.status |= SPRITE_OVERFLOW;
+                }
+            }
+        }
+
+        if self.cycle == 340 {
+            for i in 0..self.sprite_count {
+                let sprite_pattern_addr_lo: u16;
+                let sprite_pattern_addr_hi: u16;
+
+                let sprite = &self.sprite_scanline[i];
+
+                let is_8x8 = self.control & SPRITE_SIZE == 0;
+                let vflip = sprite.is_vflip();
+                let table = if self.control & PATTERN_SPRITE != 0 {
+                    1
+                } else {
+                    0
+                };
+                let fine_y = (self.scanline as u16) - (sprite.y as u16);
+
+                if is_8x8 {
+                    if !vflip {
+                        sprite_pattern_addr_lo =
+                            ((table as u16) << 12) | ((sprite.id as u16) << 4) | fine_y;
+                    } else {
+                        sprite_pattern_addr_lo =
+                            ((table as u16) << 12) | ((sprite.id as u16) << 4) | (7u16.wrapping_sub(fine_y));
+                    }
+                } else {
+                    let top_half = fine_y < 8;
+                    if !vflip {
+                        if top_half {
+                            sprite_pattern_addr_lo = (((sprite.id & 0x01) as u16) << 12)
+                                | (((sprite.id & 0xFE) as u16) << 4)
+                                | fine_y & 0x07;
+                        } else {
+                            sprite_pattern_addr_lo = (((sprite.id & 0x01) as u16) << 12)
+                                | ((((sprite.id & 0xFE) + 1) as u16) << 4)
+                                | fine_y & 0x07;
+                        }
+                    } else {
+                        if top_half {
+                            sprite_pattern_addr_lo = (((sprite.id & 0x01) as u16) << 12)
+                                | (((sprite.id & 0xFE) as u16) << 4)
+                                | 7u16.wrapping_sub(fine_y & 0x07);
+                        } else {
+                            sprite_pattern_addr_lo = (((sprite.id & 0x01) as u16) << 12)
+                                | ((((sprite.id & 0xFE) + 1) as u16) << 4)
+                                | 7u16.wrapping_sub(fine_y & 0x07);
+                        }
+                    }
+                }
+
+                sprite_pattern_addr_hi = sprite_pattern_addr_lo + 8;
+
+                let mut sprite_pattern_bits_lo = self.ppu_read(sprite_pattern_addr_lo);
+                let mut sprite_pattern_bits_hi = self.ppu_read(sprite_pattern_addr_hi);
+
+                if sprite.is_hflip() {
+                    sprite_pattern_bits_lo = sprite_pattern_bits_lo.reverse_bits();
+                    sprite_pattern_bits_hi = sprite_pattern_bits_hi.reverse_bits();
+                }
+
+                self.sprite_shifter_pattern_lo[i] = sprite_pattern_bits_lo;
+                self.sprite_shifter_pattern_hi[i] = sprite_pattern_bits_hi;
+
+            }
         }
 
         // Enter vertical blank: set flag and optionally fire NMI
@@ -449,11 +573,80 @@ impl Ppu {
             bg_palette = (bg_pal1 << 1) | bg_pal0;
         }
 
+        let mut fg_pixel: u8 = 0x00;
+        let mut fg_palette: u8 = 0x00;
+        let mut fg_priority: bool = false;
+
+        if self.mask & RENDER_SPRITES != 0 {
+            self.sprite_zero_hit_being_rendered = false;
+
+            for i in 0..self.sprite_count {
+                let sprite = &self.sprite_scanline[i];
+
+                if sprite.x == 0 {
+                    let fg_pixel_lo: u8 = ((self.sprite_shifter_pattern_lo[i] & 0x80) > 0) as u8;
+                    let fg_pixel_hi: u8 = ((self.sprite_shifter_pattern_hi[i] & 0x80) > 0) as u8;
+                    fg_pixel = (fg_pixel_hi << 1) | fg_pixel_lo;
+
+                    fg_palette = (sprite.get_palette()) + 4; // sprite palettes are 4-7
+                    fg_priority = sprite.get_priority() == 0;
+                    
+                    if fg_pixel != 0 {
+                        if i == 0 {
+                            self.sprite_zero_hit_being_rendered = true;
+                        }
+                        break; // stop at the first non-transparent pixel
+                    }
+                }
+            }
+        }
+
+        let pixel: u8;
+        let palette: u8;
+
+        if bg_pixel == 0 && fg_pixel == 0 {
+            // Both background and foreground pixels are transparent; render backdrop color
+            pixel = 0x00;
+            palette = 0x00;
+        } else if bg_pixel == 0 && fg_pixel > 0 {
+            // Foreground pixel is visible, background is transparent
+            pixel = fg_pixel;
+            palette = fg_palette;
+        } else if bg_pixel > 0 && fg_pixel == 0 {
+            // Background pixel is visible, foreground is transparent
+            pixel = bg_pixel;
+            palette = bg_palette;
+        } else {
+            // Both foreground and background pixels are nonzero; use priority to decide
+            if fg_priority {
+                pixel = fg_pixel;
+                palette = fg_palette;
+            } else {
+                pixel = bg_pixel;
+                palette = bg_palette;
+            }
+
+            // Sprite zero hit: set if sprite zero is being rendered and the background pixel is nonzero
+            if self.sprite_zero_hit_possible && self.sprite_zero_hit_being_rendered {
+                if self.mask & RENDER_BACKGROUND != 0 && self.mask & RENDER_SPRITES != 0 {
+                    if (self.mask & SHOW_BACKGROUND_LEFT | self.mask & SHOW_SPRITES_LEFT) == 0 {
+                        if self.cycle >= 9 && self.cycle < 258 {
+                            self.status |= SPRITE_ZERO_HIT;
+                        }
+                    } else {
+                        if self.cycle >= 1 && self.cycle < 258 {
+                            self.status |= SPRITE_ZERO_HIT;
+                        }
+                    }
+                }
+            }
+        }
+
         if self.scanline >= 0 && self.scanline < 240 && self.cycle >= 1 && self.cycle <= 256 {
             let x = (self.cycle - 1) as usize;
             let y = self.scanline as usize;
             let color_index =
-                self.ppu_read(0x3F00 + ((bg_palette as u16) << 2) + bg_pixel as u16) & 0x3F;
+                self.ppu_read(0x3F00 + ((palette as u16) << 2) + pixel as u16) & 0x3F;
             self.screen[y * 256 + x] = color_index;
         }
 
@@ -470,6 +663,30 @@ impl Ppu {
         }
 
         !prev_nmi && self.nmi
+    }
+
+    /// Get the current sprite height (8 or 16 pixels) based on control flags.
+    fn get_sprite_size(&self) -> u8 {
+        if self.control & SPRITE_SIZE != 0 {
+            16
+        } else {
+            8
+        }
+    }
+
+    /// Read a byte from the OAM entry at the current `oam_addr`.
+    fn oam_read(&self) -> u8 {
+        let sprite_idx = (self.oam_addr / 4) as usize;
+        let byte_idx = (self.oam_addr % 4) as usize;
+        self.oam_data[sprite_idx].read_u8(byte_idx)
+    }
+
+    /// Write a byte into the OAM entry at the current `oam_addr` and auto-increment.
+    fn oam_write(&mut self, data: u8) {
+        let sprite_idx = (self.oam_addr / 4) as usize;
+        let byte_idx = (self.oam_addr % 4) as usize;
+        self.oam_data[sprite_idx].write_u8(byte_idx, data);
+        self.oam_addr = self.oam_addr.wrapping_add(1);
     }
 
     /// Advance the horizontal tile position, wrapping across nametable boundaries.
@@ -577,6 +794,17 @@ impl Ppu {
             self.bg_shifter_attrib_lo <<= 1;
             self.bg_shifter_attrib_hi <<= 1;
         }
+
+        if self.mask & RENDER_SPRITES != 0 && self.cycle >= 1 && self.cycle < 258 {
+            for i in 0..self.sprite_count {
+                if self.sprite_scanline[i].x > 0 {
+                    self.sprite_scanline[i].x -= 1;
+                } else {
+                    self.sprite_shifter_pattern_lo[i] <<= 1;
+                    self.sprite_shifter_pattern_hi[i] <<= 1;
+                }
+            }
+        }
     }
 
     /// Decode all 256 tiles from the given pattern table (0 or 1) into 8×8 pixel
@@ -596,7 +824,7 @@ impl Ppu {
                         self.ppu_read((index as u16) * 0x1000 + offset + row + 0x0008);
 
                     for col in 0u16..8 {
-                        let pixel = (tile_lsb & 0x01) + (tile_msb & 0x01);
+                        let pixel = ((tile_msb & 0x01) << 1) | (tile_lsb & 0x01);
                         tile_lsb >>= 1;
                         tile_msb >>= 1;
                         tile[row as usize * 8 + (7 - col) as usize] = pixel;

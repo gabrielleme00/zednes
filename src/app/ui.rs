@@ -35,9 +35,10 @@ const COMMAND_KEY_MAP: &[(egui::Key, Command)] = &[
 /// Main eframe application for the ZedNES emulator
 pub struct ZednesApp {
     state: EmulatorState,
-    show_ppu_debugger: bool,
+    show_palette_debugger: bool,
     show_cpu_debugger: bool,
     show_mem_debugger: bool,
+    show_oam_debugger: bool,
     chr_textures: HashMap<(u8, u8), egui::TextureHandle>,
     /// Selected palette index (0-7) for each pattern table (0 = $0000, 1 = $1000)
     chr_palette_select: [u8; 2],
@@ -58,9 +59,10 @@ impl ZednesApp {
     pub fn new(_cc: &eframe::CreationContext) -> Self {
         Self {
             state: EmulatorState::new(),
-            show_ppu_debugger: false,
+            show_palette_debugger: false,
             show_cpu_debugger: true,
             show_mem_debugger: false,
+            show_oam_debugger: false,
             chr_textures: HashMap::new(),
             chr_palette_select: [0; 2],
             screen_texture: None,
@@ -104,10 +106,10 @@ impl ZednesApp {
 
             ui.menu_button("Debug", |ui| {
                 if ui
-                    .selectable_label(self.show_ppu_debugger, "PPU Debugger")
+                    .selectable_label(self.show_palette_debugger, "Palette Debugger")
                     .clicked()
                 {
-                    self.show_ppu_debugger = !self.show_ppu_debugger;
+                    self.show_palette_debugger = !self.show_palette_debugger;
                     ui.close();
                 }
 
@@ -124,6 +126,14 @@ impl ZednesApp {
                     .clicked()
                 {
                     self.show_mem_debugger = !self.show_mem_debugger;
+                    ui.close();
+                }
+
+                if ui
+                    .selectable_label(self.show_oam_debugger, "OAM Debugger")
+                    .clicked()
+                {
+                    self.show_oam_debugger = !self.show_oam_debugger;
                     ui.close();
                 }
             });
@@ -194,11 +204,11 @@ impl ZednesApp {
         });
     }
 
-    fn render_ppu_dbg_window(&mut self, ctx: &egui::Context) {
-        let mut open = self.show_ppu_debugger;
+    fn render_palette_dbg_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_palette_debugger;
         egui::Window::new("PPU Debugger")
             .open(&mut open)
-            .resizable(false)
+            .resizable(true)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     self.render_pattern_table(ui, ctx, 0);
@@ -207,7 +217,63 @@ impl ZednesApp {
                 });
                 self.render_palettes(ui);
             });
-        self.show_ppu_debugger = open;
+        self.show_palette_debugger = open;
+    }
+
+    fn render_oam_dbg_window(&self, ctx: &egui::Context, open: &mut bool) {
+        egui::Window::new("OAM Debugger")
+            .open(open)
+            .resizable(true)
+            .show(ctx, |ui| {
+                let oam = self.state.nes.get_oam();
+
+                egui::Grid::new("oam_header")
+                    .num_columns(9)
+                    .spacing([6.0, 2.0])
+                    .show(ui, |ui| {
+                        ui.strong("#");
+                        ui.strong("X");
+                        ui.strong("Y");
+                        ui.strong("Tile");
+                        ui.strong("Attr");
+                        ui.strong("Pal");
+                        ui.strong("Pri");
+                        ui.strong("H-Flip");
+                        ui.strong("V-Flip");
+                        ui.end_row();
+                    });
+
+                ui.separator();
+
+                egui::ScrollArea::vertical()
+                    .id_salt("oam_scroll")
+                    .show(ui, |ui| {
+                        egui::Grid::new("oam_table")
+                            .num_columns(9)
+                            .spacing([6.0, 2.0])
+                            .striped(true)
+                            .show(ui, |ui| {
+                                for (i, (y, tile, attr, x)) in oam.iter().enumerate() {
+                                    let palette  = attr & 0x03;
+                                    let priority = (attr >> 5) & 0x01;
+                                    let flip_h   = (attr >> 6) & 0x01;
+                                    let flip_v   = (attr >> 7) & 0x01;
+
+                                    ui.label(format!("{:02}", i));
+                                    ui.label(format!("${:02X}", x));
+                                    ui.label(format!("${:02X}", y));
+                                    ui.label(format!("${:02X}", tile));
+                                    ui.label(format!("${:02X}", attr))
+                                        .on_hover_text(format!("binary: {:08b}", attr));
+                                    ui.label(format!("SP{}", palette + 4));
+                                    ui.label(if priority == 0 { "Front" } else { "Behind" });
+                                    ui.label(if flip_h != 0 { "Y" } else { "N" });
+                                    ui.label(if flip_v != 0 { "Y" } else { "N" });
+                                    ui.end_row();
+                                }
+                            });
+                    });
+            });
     }
 
     /// Draw a single filled colour swatch with a hover tooltip.
@@ -318,7 +384,6 @@ impl ZednesApp {
             ui.horizontal(|ui| {
                 ui.label(if table_idx == 0 { "$0000" } else { "$1000" });
                 ui.separator();
-                ui.label("Palette:");
                 for p in 0u8..8 {
                     let label = if p < 4 {
                         format!("BG{}", p)
@@ -760,10 +825,10 @@ impl ZednesApp {
         });
 
         for btn in pressed_btns {
-            self.state.nes.bus.controller1.press(btn);
+            self.state.nes.bus.controllers[0].press(btn);
         }
         for btn in released_btns {
-            self.state.nes.bus.controller1.release(btn);
+            self.state.nes.bus.controllers[0].release(btn);
         }
         for cmd in triggered_cmds {
             match cmd {
@@ -809,13 +874,20 @@ impl eframe::App for ZednesApp {
         self.render_display(ctx);
 
         // Render the PPU debugger as a separate window if enabled
-        if self.show_ppu_debugger {
-            self.render_ppu_dbg_window(ctx);
+        if self.show_palette_debugger {
+            self.render_palette_dbg_window(ctx);
         }
 
         // Render the memory debugger as a separate window if enabled
         if self.show_mem_debugger {
             self.render_mem_dbg_window(ctx);
+        }
+
+        // Render the OAM debugger as a separate window if enabled
+        if self.show_oam_debugger {
+            let mut open = self.show_oam_debugger;
+            self.render_oam_dbg_window(ctx, &mut open);
+            self.show_oam_debugger = open;
         }
     }
 }
