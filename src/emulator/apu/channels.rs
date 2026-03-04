@@ -154,7 +154,7 @@ impl PulseChannel {
 
     fn clock_sweep(&mut self) {
         let target_period = self.sweep_target_period();
-        let sweep_mute = self.timer_period < 8 || target_period > 0x07FF;
+        let sweep_mute = self.timer_period < 8 || self.sweep_overflow();
 
         if self.sweep_divider == 0 {
             if self.sweep_enabled && self.sweep_shift != 0 && !sweep_mute {
@@ -169,6 +169,15 @@ impl PulseChannel {
             self.sweep_reload = false;
             self.sweep_divider = self.sweep_period;
         }
+    }
+
+    fn sweep_overflow(&self) -> bool {
+        if !self.sweep_enabled || self.sweep_shift == 0 || self.sweep_negate {
+            return false;
+        }
+
+        let change = self.timer_period >> self.sweep_shift;
+        (self.timer_period as u32 + change as u32) > 0x07FF
     }
 
     fn sweep_target_period(&self) -> u16 {
@@ -197,8 +206,7 @@ impl PulseChannel {
             return 0;
         }
 
-        let target_period = self.sweep_target_period();
-        let sweep_mute = self.timer_period < 8 || target_period > 0x07FF;
+        let sweep_mute = self.timer_period < 8 || self.sweep_overflow();
         if sweep_mute {
             return 0;
         }
