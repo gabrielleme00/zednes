@@ -1,4 +1,4 @@
-pub type Address = u16;
+pub type Address = usize;
 pub type Data = u8;
 
 pub trait Mapper {

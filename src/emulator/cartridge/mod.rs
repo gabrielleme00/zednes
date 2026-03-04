@@ -1,9 +1,11 @@
 pub mod header;
 pub mod mapper;
 pub mod mapper0;
+pub mod mapper2;
 
 use mapper::Mapper;
 use mapper0::Mapper0;
+use mapper2::Mapper2;
 
 /// NES Cartridge with iNES format support
 pub struct Cartridge {
@@ -69,6 +71,7 @@ impl Cartridge {
         // Create the appropriate mapper implementation based on the mapper number
         let mapper_impl: Box<dyn Mapper> = match mapper {
             0 => Box::new(Mapper0::new(prg_banks, chr_banks)),
+            2 => Box::new(Mapper2::new(prg_banks, chr_banks)),
             _ => return Err(format!("Unsupported mapper: {}", mapper)),
         };
 
@@ -83,8 +86,8 @@ impl Cartridge {
 
     /// CPU read from cartridge. Returns (data, is_mapped).
     pub fn cpu_read(&self, addr: u16) -> (u8, bool) {
-        if let Some(mapped_addr) = self.mapper.cpu_map_read(addr) {
-            let data = self.prg_rom[mapped_addr as usize];
+        if let Some(mapped_addr) = self.mapper.cpu_map_read(addr as usize) {
+            let data = self.prg_rom[mapped_addr];
             (data, true)
         } else {
             (0, false)
@@ -93,8 +96,8 @@ impl Cartridge {
 
     /// CPU write to cartridge. Returns true if the write was handled by the mapper.
     pub fn cpu_write(&mut self, addr: u16, data: u8) -> bool {
-        if let Some(mapped_addr) = self.mapper.cpu_map_write(addr, data) {
-            self.prg_rom[mapped_addr as usize] = data;
+        if let Some(mapped_addr) = self.mapper.cpu_map_write(addr as usize, data) {
+            self.prg_rom[mapped_addr] = data;
             true
         } else {
             false
@@ -103,8 +106,8 @@ impl Cartridge {
 
     /// PPU read from cartridge. Returns (data, is_mapped).
     pub fn ppu_read(&self, addr: u16) -> (u8, bool) {
-        if let Some(mapped_addr) = self.mapper.ppu_map_read(addr) {
-            let data = self.chr_rom[mapped_addr as usize];
+        if let Some(mapped_addr) = self.mapper.ppu_map_read(addr as usize) {
+            let data = self.chr_rom[mapped_addr];
             (data, true)
         } else {
             (0, false)
@@ -113,8 +116,8 @@ impl Cartridge {
 
     /// PPU write to cartridge. Returns true if the write was handled by the mapper.
     pub fn ppu_write(&mut self, addr: u16, data: u8) -> bool {
-        if let Some(mapped_addr) = self.mapper.ppu_map_write(addr, data) {
-            self.chr_rom[mapped_addr as usize] = data;
+        if let Some(mapped_addr) = self.mapper.ppu_map_write(addr as usize, data) {
+            self.chr_rom[mapped_addr] = data;
             true
         } else {
             false

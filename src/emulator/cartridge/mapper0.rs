@@ -12,14 +12,14 @@ pub struct Mapper0 {
 
 impl Mapper for Mapper0 {
     fn new(prg_banks: usize, chr_banks: usize) -> Self {
-        Mapper0 { prg_banks, chr_banks }
+        Self { prg_banks, chr_banks }
     }
 
     fn cpu_map_read(&self, addr: Address) -> Option<Address> {
         if addr >= 0x8000 {
             // Mask mirrors the address if only one 16 KB bank is present.
             let mask = if self.prg_banks > 1 { 0x7FFF } else { 0x3FFF };
-            Some((addr & mask) as Address)
+            Some(addr & mask)
         } else {
             None
         }
@@ -28,7 +28,7 @@ impl Mapper for Mapper0 {
     fn cpu_map_write(&mut self, addr: Address, _data: Data) -> Option<Address> {
         if addr >= 0x8000 {
             let mask = if self.prg_banks > 1 { 0x7FFF } else { 0x3FFF };
-            Some((addr & mask) as Address)
+            Some(addr & mask)
         } else {
             None
         }
@@ -36,7 +36,7 @@ impl Mapper for Mapper0 {
 
     fn ppu_map_read(&self, addr: Address) -> Option<Address> {
         if addr < 0x2000 {
-            Some(addr as Address)
+            Some(addr)
         } else {
             None
         }
@@ -45,7 +45,7 @@ impl Mapper for Mapper0 {
     fn ppu_map_write(&mut self, addr: Address, _data: Data) -> Option<Address> {
         // Allow writes only if CHR RAM is present (chr_banks == 0 means CHR RAM).
         if addr < 0x2000 && self.chr_banks == 0 {
-            Some(addr as Address)
+            Some(addr)
         } else {
             None
         }
