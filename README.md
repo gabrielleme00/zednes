@@ -39,6 +39,12 @@ The compiled binary will be at `target/release/zednes`.
 cargo run --release
 ```
 
+To start directly with a ROM:
+
+```bash
+cargo run --release -- "roms/Super Mario Bros. (World).nes"
+```
+
 Use **File → Load ROM…** in the menu bar to load a `.nes` ROM file.
 
 ## Controls

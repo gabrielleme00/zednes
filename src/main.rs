@@ -2,6 +2,8 @@ use zednes::ZednesApp;
 use eframe::egui;
 
 fn main() -> eframe::Result<()> {
+    let rom_path = std::env::args().nth(1);
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])
@@ -13,6 +15,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "ZedNES",
         options,
-        Box::new(|cc| Ok(Box::new(ZednesApp::new(cc)))),
+        Box::new(move |cc| Ok(Box::new(ZednesApp::new(cc, rom_path.as_deref())))),
     )
 }

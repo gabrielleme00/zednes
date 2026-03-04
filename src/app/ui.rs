@@ -3,6 +3,7 @@ use crate::emulator::controller::Button;
 use crate::renderer::{FrameBuffer, SYSTEM_PALETTE};
 use eframe::egui;
 use std::collections::HashMap;
+use std::path::Path;
 
 /// Commands that can be triggered from the UI or keyboard shortcuts
 enum Command {
@@ -57,8 +58,8 @@ pub struct ZednesApp {
 }
 
 impl ZednesApp {
-    pub fn new(_cc: &eframe::CreationContext) -> Self {
-        Self {
+    pub fn new(_cc: &eframe::CreationContext, startup_rom_path: Option<&str>) -> Self {
+        let mut app = Self {
             state: EmulatorState::new(),
             show_palette_debugger: false,
             show_cpu_debugger: true,
@@ -77,6 +78,26 @@ impl ZednesApp {
             mem_debugger_goto: String::new(),
             mem_debugger_rows: 16,
             first_frame: true,
+        };
+
+        if let Some(path) = startup_rom_path {
+            app.load_rom_from_path(path);
+        }
+
+        app
+    }
+
+    fn load_rom_from_path<P: AsRef<Path>>(&mut self, path: P) {
+        let path = path.as_ref();
+        match std::fs::read(path) {
+            Ok(rom_data) => {
+                if let Err(err) = self.state.load_rom(&rom_data) {
+                    eprintln!("Failed to load ROM '{}': {}", path.display(), err);
+                }
+            }
+            Err(err) => {
+                eprintln!("Failed to read ROM '{}': {}", path.display(), err);
+            }
         }
     }
 
@@ -89,14 +110,7 @@ impl ZednesApp {
                         .set_title("Open NES ROM")
                         .pick_file()
                     {
-                        match std::fs::read(&path) {
-                            Ok(rom_data) => {
-                                if let Err(e) = self.state.load_rom(&rom_data) {
-                                    eprintln!("Failed to load ROM: {}", e);
-                                }
-                            }
-                            Err(e) => eprintln!("Failed to read file: {}", e),
-                        }
+                        self.load_rom_from_path(path);
                     }
                     ui.close();
                 }
