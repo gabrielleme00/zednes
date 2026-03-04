@@ -1,9 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use super::cartridge::Cartridge;
-use super::ppu::{Ppu, TvSystem};
-use crate::input::Controller;
+use super::{Apu, Cartridge, Ppu, TvSystem, Controller};
 
 const RAM_SIZE: usize = 64 * 1024; // 64KB of fake RAM for testing purposes
 
@@ -12,15 +10,11 @@ pub struct Bus {
     // CPU RAM
     pub cpu_ram: [u8; RAM_SIZE],
 
-    // Controllers
-    pub controllers: [Controller; 2],
-
     // References to other components
+    pub controllers: [Controller; 2],
     pub ppu: Ppu,
     pub cartridge: Option<Rc<RefCell<Cartridge>>>,
-    
-    // PPUDATA read buffer (for buffered reads)
-    _ppu_data_buffer: u8,
+    pub apu: Apu,
 
     // For OAM DMA transfers
     dma_page: u8,
@@ -47,7 +41,7 @@ impl Bus {
             controllers: [Controller::new(), Controller::new()],
             ppu: Ppu::new(tv_system),
             cartridge: None,
-            _ppu_data_buffer: 0,
+            apu: Apu::new_with_tv_system(tv_system),
             dma_page: 0,
             dma_addr: 0,
             dma_data: 0,
@@ -68,10 +62,7 @@ impl Bus {
             0x2000..=0x3FFF => self.ppu.peek(addr & 0x0007),
 
             // APU and I/O registers
-            0x4000..=0x4015 => {
-                // APU registers (not implemented yet)
-                0
-            }
+            0x4000..=0x4015 => self.apu.cpu_read(addr),
             0x4016 => self.controllers[0].peek_bit(),
             0x4017 => self.controllers[1].peek_bit(),
 
@@ -117,10 +108,7 @@ impl Bus {
             0x2000..=0x3FFF => self.ppu.cpu_read(addr & 0x0007),
 
             // APU and I/O registers
-            0x4000..=0x4015 => {
-                // APU registers (not implemented yet)
-                0
-            }
+            0x4000..=0x4015 => self.apu.cpu_read(addr),
             0x4016 => self.controllers[0].read_serial(),
             0x4017 => self.controllers[1].read_serial(),
 
@@ -164,7 +152,7 @@ impl Bus {
 
             // APU and I/O registers
             0x4000..=0x4013 | 0x4015 | 0x4017 => {
-                // APU registers (not implemented yet)
+                self.apu.cpu_write(addr, data);
             }
 
             0x4016 => {
@@ -201,7 +189,7 @@ impl Bus {
             self.dma_dummy = false;
             return 1;
         }
-        
+
         let addr = ((self.dma_page as u16) << 8) | (self.dma_addr as u16);
 
         if self.dma_sync {

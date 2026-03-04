@@ -1,5 +1,5 @@
 use super::state::EmulatorState;
-use crate::input::Button;
+use crate::emulator::controller::Button;
 use crate::renderer::{FrameBuffer, SYSTEM_PALETTE};
 use eframe::egui;
 use std::collections::HashMap;
@@ -39,6 +39,7 @@ pub struct ZednesApp {
     show_cpu_debugger: bool,
     show_mem_debugger: bool,
     show_oam_debugger: bool,
+    show_audio_diagnostics: bool,
     chr_textures: HashMap<(u8, u8), egui::TextureHandle>,
     /// Selected palette index (0-7) for each pattern table (0 = $0000, 1 = $1000)
     chr_palette_select: [u8; 2],
@@ -63,6 +64,7 @@ impl ZednesApp {
             show_cpu_debugger: true,
             show_mem_debugger: false,
             show_oam_debugger: false,
+            show_audio_diagnostics: true,
             chr_textures: HashMap::new(),
             chr_palette_select: [0; 2],
             screen_texture: None,
@@ -104,6 +106,57 @@ impl ZednesApp {
                 }
             });
 
+            ui.menu_button("Audio", |ui| {
+                if let Some(audio) = &self.state.audio {
+                    let controls = audio.controls();
+                    let mut muted = controls.muted();
+                    if ui.checkbox(&mut muted, "Mute").changed() {
+                        controls.set_muted(muted);
+                    }
+
+                    let mut volume = controls.volume();
+                    if ui
+                        .add(
+                            egui::Slider::new(&mut volume, 0.0..=2.0)
+                                .clamping(egui::SliderClamping::Always),
+                        )
+                        .changed()
+                    {
+                        controls.set_volume(volume);
+                    }
+
+                    ui.separator();
+                    ui.label("APU Channel Mute");
+
+                    let mut mute_pulse1 = self.state.is_apu_pulse1_muted();
+                    if ui.checkbox(&mut mute_pulse1, "Pulse 1").changed() {
+                        self.state.set_apu_pulse1_muted(mute_pulse1);
+                    }
+
+                    let mut mute_pulse2 = self.state.is_apu_pulse2_muted();
+                    if ui.checkbox(&mut mute_pulse2, "Pulse 2").changed() {
+                        self.state.set_apu_pulse2_muted(mute_pulse2);
+                    }
+
+                    let mut mute_triangle = self.state.is_apu_triangle_muted();
+                    if ui.checkbox(&mut mute_triangle, "Triangle").changed() {
+                        self.state.set_apu_triangle_muted(mute_triangle);
+                    }
+
+                    let mut mute_noise = self.state.is_apu_noise_muted();
+                    if ui.checkbox(&mut mute_noise, "Noise").changed() {
+                        self.state.set_apu_noise_muted(mute_noise);
+                    }
+
+                    let mut mute_dmc = self.state.is_apu_dmc_muted();
+                    if ui.checkbox(&mut mute_dmc, "DMC").changed() {
+                        self.state.set_apu_dmc_muted(mute_dmc);
+                    }
+                } else {
+                    ui.label("Audio output unavailable");
+                }
+            });
+
             ui.menu_button("Debug", |ui| {
                 if ui
                     .selectable_label(self.show_palette_debugger, "Palette Debugger")
@@ -136,6 +189,14 @@ impl ZednesApp {
                     self.show_oam_debugger = !self.show_oam_debugger;
                     ui.close();
                 }
+
+                if ui
+                    .selectable_label(self.show_audio_diagnostics, "Audio Diagnostics")
+                    .clicked()
+                {
+                    self.show_audio_diagnostics = !self.show_audio_diagnostics;
+                    ui.close();
+                }
             });
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -151,6 +212,29 @@ impl ZednesApp {
                     (egui::Color32::RED, "NO ROM LOADED")
                 };
                 ui.colored_label(status_color, status_label);
+
+                if self.show_audio_diagnostics {
+                    if let Some(audio) = &self.state.audio {
+                        let controls = audio.controls();
+                        let stats = controls.snapshot();
+                        let buffer_len = audio.buffer_len();
+                        let buffer_cap = audio.buffer_capacity().max(1);
+                        let fill_percent = (buffer_len as f32 / buffer_cap as f32) * 100.0;
+                        ui.separator();
+                        ui.monospace(format!(
+                            "AUDIO buf:{}/{} ({:.0}%) vol:{:.0}% {} uf:{} of:{} fps:{:.2}",
+                            buffer_len,
+                            buffer_cap,
+                            fill_percent,
+                            stats.volume * 100.0,
+                            if stats.muted { "MUTED" } else { "LIVE" },
+                            stats.underflows,
+                            stats.overflows,
+                            self.state.target_fps()
+                        ));
+                    }
+                }
+
                 if let Some(ref msg) = self.state.error_message {
                     ui.separator();
                     ui.colored_label(egui::Color32::from_rgb(255, 120, 120), msg.as_str());
@@ -854,7 +938,9 @@ impl eframe::App for ZednesApp {
         // Handle input for controller buttons and emulator commands
         self.handle_input(ctx);
 
-        // Request continuous repaint for smooth animation
+        // Step the emulator if it's running. We do this before rendering so that the display and debuggers
+        // show the most up-to-date state. The `step_frame` method will internally decide how many CPU cycles to run
+        // based on the current TV system and whether the user has requested a single-step or frame advance.
         if self.state.running {
             ctx.request_repaint();
             self.state.step_frame();

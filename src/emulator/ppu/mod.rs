@@ -484,7 +484,7 @@ impl Ppu {
             }
         }
 
-        if self.cycle == 340 {
+        if self.cycle == 340 && self.scanline >= 0 && self.scanline < 240 {
             for i in 0..self.sprite_count {
                 let sprite_pattern_addr_lo: u16;
                 let sprite_pattern_addr_hi: u16;
@@ -533,7 +533,7 @@ impl Ppu {
                     }
                 }
 
-                sprite_pattern_addr_hi = sprite_pattern_addr_lo + 8;
+                sprite_pattern_addr_hi = sprite_pattern_addr_lo.wrapping_add(8);
 
                 let mut sprite_pattern_bits_lo = self.ppu_read(sprite_pattern_addr_lo);
                 let mut sprite_pattern_bits_hi = self.ppu_read(sprite_pattern_addr_hi);

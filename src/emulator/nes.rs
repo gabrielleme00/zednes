@@ -1,7 +1,4 @@
-use super::bus::Bus;
-use super::cartridge::Cartridge;
-use super::cpu::Cpu;
-use super::ppu::TvSystem;
+use super::{Bus, Cartridge, Cpu, TvSystem};
 
 const DEFAULT_TV_SYSTEM: TvSystem = TvSystem::Ntsc;
 
@@ -50,6 +47,7 @@ impl Nes {
     pub fn reset(&mut self) {
         self.cpu.reset();
         self.bus.ppu.reset();
+        self.bus.apu.reset();
         self.load_reset_vector();
     }
 
@@ -64,7 +62,58 @@ impl Nes {
             cycles
         };
 
+        self.bus.apu.step(cpu_cycles as u32);
         self.step_ppu_for_cpu_cycles(cpu_cycles);
+    }
+
+    /// Configure the APU output sample rate so cycle-to-sample conversion matches the audio backend.
+    pub fn set_audio_sample_rate(&mut self, sample_rate: u32) {
+        self.bus.apu.set_output_sample_rate(sample_rate);
+    }
+
+    /// Drain all generated APU samples into `out`.
+    pub fn drain_audio_samples(&mut self, out: &mut Vec<f32>) {
+        self.bus.apu.drain_samples(out);
+    }
+
+    pub fn set_apu_pulse1_muted(&mut self, muted: bool) {
+        self.bus.apu.set_pulse1_muted(muted);
+    }
+
+    pub fn is_apu_pulse1_muted(&self) -> bool {
+        self.bus.apu.is_pulse1_muted()
+    }
+
+    pub fn set_apu_pulse2_muted(&mut self, muted: bool) {
+        self.bus.apu.set_pulse2_muted(muted);
+    }
+
+    pub fn is_apu_pulse2_muted(&self) -> bool {
+        self.bus.apu.is_pulse2_muted()
+    }
+
+    pub fn set_apu_triangle_muted(&mut self, muted: bool) {
+        self.bus.apu.set_triangle_muted(muted);
+    }
+
+    pub fn is_apu_triangle_muted(&self) -> bool {
+        self.bus.apu.is_triangle_muted()
+    }
+
+    pub fn set_apu_noise_muted(&mut self, muted: bool) {
+        self.bus.apu.set_noise_muted(muted);
+    }
+
+    pub fn is_apu_noise_muted(&self) -> bool {
+        self.bus.apu.is_noise_muted()
+    }
+
+    pub fn set_apu_dmc_muted(&mut self, muted: bool) {
+        self.bus.apu.set_dmc_muted(muted);
+    }
+
+    pub fn is_apu_dmc_muted(&self) -> bool {
+        self.bus.apu.is_dmc_muted()
     }
 
     /// Advance the PPU by the number of PPU cycles that correspond to the given CPU cycles,
