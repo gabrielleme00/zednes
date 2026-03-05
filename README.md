@@ -2,6 +2,8 @@
 
 A Nintendo Entertainment System (NES) emulator written in Rust, featuring a graphical interface with built-in debugging tools.
 
+![ZedNES Emulator](screenshot.png)
+
 ## Features
 
 - **MOS 6502 CPU** emulation with full official instruction set support
@@ -9,15 +11,7 @@ A Nintendo Entertainment System (NES) emulator written in Rust, featuring a grap
 - **NTSC / PAL** timing (configurable TV system)
 - **iNES ROM format** parsing with mappers support
 - **Controller input** (Player 1 & 2)
-- **Built-in debuggers**
-  - CPU state viewer (registers, flags, disassembly)
-  - PPU pattern-table viewer
-  - Palette viewer
-  - Memory hex viewer
-
-## Screenshots
-
-![ZedNES Emulator](screenshot.png)
+- **Built-in debuggers** (CPU, RAM, PPU, APU)
 
 ## Requirements
 
@@ -71,8 +65,10 @@ Use **File → Load ROM…** in the menu bar to load a `.nes` ROM file.
 Open any debugger from the **Debug** menu:
 
 - **CPU Debugger** - shows registers (A, X, Y, SP, PC), status flags, and a disassembly view.
-- **PPU Debugger** - renders both pattern tables and the system palette.
+- **Palette Debugger** - renders both pattern tables and the system palette.
 - **Mem Debugger** - hex dump of the full address space with a *Go to address* input.
+- **OAM Debugger** - shows the values of the entries in OAM.
+- **Audio Diagnostics** - Shows buffer fill, volume, underflows, overflows, and target FPS
 
 ## Project Structure
 
@@ -97,10 +93,11 @@ src/
 
 ## ROM Compatibility
 
-| Mapper | Name  | Status |
-|--------|-------|--------|
-| 0      | NROM  | ✅ Supported |
-| Others | -     | 🚧 Not yet implemented |
+| Mapper | Name   | Status       |
+|--------|--------|--------------|
+| 000    | NROM   | ✅ Supported |
+| 002    | UNROM  | ✅ Supported |
+| Others | -      | 🚧 Not yet implemented |
 
 ## Dependencies
 
