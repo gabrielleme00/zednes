@@ -36,6 +36,7 @@ const COMMAND_KEY_MAP: &[(egui::Key, Command)] = &[
 /// Main eframe application for the ZedNES emulator
 pub struct ZednesApp {
     state: EmulatorState,
+    start_paused_on_rom_load: bool,
     show_palette_debugger: bool,
     show_cpu_debugger: bool,
     show_mem_debugger: bool,
@@ -61,6 +62,7 @@ impl ZednesApp {
     pub fn new(_cc: &eframe::CreationContext, startup_rom_path: Option<&str>) -> Self {
         let mut app = Self {
             state: EmulatorState::new(),
+            start_paused_on_rom_load: false,
             show_palette_debugger: false,
             show_cpu_debugger: true,
             show_mem_debugger: false,
@@ -91,7 +93,10 @@ impl ZednesApp {
         let path = path.as_ref();
         match std::fs::read(path) {
             Ok(rom_data) => {
-                if let Err(err) = self.state.load_rom(&rom_data) {
+                if let Err(err) = self
+                    .state
+                    .load_rom(&rom_data, self.start_paused_on_rom_load)
+                {
                     eprintln!("Failed to load ROM '{}': {}", path.display(), err);
                 }
             }
@@ -114,6 +119,7 @@ impl ZednesApp {
                     }
                     ui.close();
                 }
+                ui.checkbox(&mut self.start_paused_on_rom_load, "Start paused");
                 ui.separator();
                 if ui.button("Exit").clicked() {
                     std::process::exit(0);

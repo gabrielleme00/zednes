@@ -49,11 +49,11 @@ impl EmulatorState {
     }
 
     /// Load a ROM from bytes
-    pub fn load_rom(&mut self, rom_data: &[u8]) -> Result<(), String> {
+    pub fn load_rom(&mut self, rom_data: &[u8], start_paused: bool) -> Result<(), String> {
         match self.nes.load_rom(rom_data) {
             Ok(_) => {
                 self.rom_loaded = true;
-                self.running = false;
+                self.running = !start_paused;
                 self.error_message = None;
                 self.reset_timing_state();
                 self.prepare_audio_for_transition(true);
